@@ -17,7 +17,7 @@ knitr::opts_chunk$set(comment = "")
 
 ### RSA / ECDSA keys
 
-JSON Web Keys (JWK) is a format specified in [RFC7517](https://tools.ietf.org/html/rfc7517) for storing RSA/EC/AES keys in a JSON based format. It can be used to import/export such keys in the brower using the new [W3C WebCryptoAPI](https://www.w3.org/TR/WebCryptoAPI/).
+JSON Web Keys (JWK) is a format specified in [RFC7517](https://tools.ietf.org/html/rfc7517) for storing RSA/EC/AES keys in a JSON based format. It can be used to import/export such keys in the browser using the new [W3C WebCryptoAPI](https://www.w3.org/TR/WebCryptoAPI/).
 
 The `jose` package makes it easy to read/write such keys in R for use with JWT or any other functionality from the `openssl` package.
 
@@ -36,8 +36,8 @@ json <- write_jwk(pubkey)
 jsonlite::prettify(json)
 
 # Read JWK key
-(key2 <- read_jwk(json))
-identical(key, key2)
+(out <- read_jwk(json))
+identical(pubkey, out)
 ```
 
 
