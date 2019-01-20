@@ -101,6 +101,11 @@ jwt_encode_sig <- function(claim = jwt_claim(), key, size = 256, header = NULL) 
   doc <- paste(base64url_encode(jwt_header), base64url_encode(to_json(claim)), sep = ".")
   dgst <- sha2(charToRaw(doc), size = size)
   sig <- signature_create(dgst, hash = NULL, key = key)
+  if(inherits(key, "ecdsa")){
+    params <- openssl::ecdsa_parse(sig)
+    bitsize <- ceiling(size / 8)
+    sig <- c(pad_bignum(params$r, size), pad_bignum(params$s, size))
+  }
   paste(doc, base64url_encode(sig), sep = ".")
 }
 
@@ -114,6 +119,12 @@ jwt_decode_sig <- function(jwt, pubkey){
   if((!inherits(key, "rsa") && !inherits(key, "ecdsa")) || !inherits(key, "pubkey"))
     stop("Key must be rsa/ecdsa public key")
   dgst <- sha2(out$data, size = out$keysize)
+  if(out$type == "ECDSA"){
+    bitsize <- length(out$sig)/2
+    r <- out$sig[seq_len(bitsize)]
+    s <- out$sig[seq_len(bitsize) + bitsize]
+    out$sig <- openssl::ecdsa_write(r, s)
+  }
   if(!signature_verify(dgst, out$sig, hash = NULL, pubkey = key))
     stop(out$type, " signature verification failed!", call. = FALSE)
   structure(out$payload, class = c("jwt_claim", "list"))
@@ -138,4 +149,12 @@ jwt_split <- function(jwt){
 
 to_json <- function(x){
   jsonlite::toJSON(x, auto_unbox = TRUE)
+}
+
+# Adds leading zeros if needed (P512 is 521 bit == 66 bytes)
+# Spec: https://tools.ietf.org/html/rfc7518#page-10
+pad_bignum <- function(x, keysize){
+  stopifnot(keysize %in% c(256, 384, 512))
+  bitsize <- switch (as.character(keysize), "256" = 32, "384" = 48, "512" = 66)
+  c(raw(bitsize - length(x)), x)
 }
