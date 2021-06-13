@@ -1,8 +1,8 @@
-## ----setup, include=FALSE------------------------------------------------
+## ----setup, include=FALSE-----------------------------------------------------
 knitr::opts_chunk$set(echo = TRUE)
 knitr::opts_chunk$set(comment = "")
 
-## ------------------------------------------------------------------------
+## -----------------------------------------------------------------------------
 library(openssl)
 library(jose)
 
@@ -16,11 +16,11 @@ key <- charToRaw("SuperSecret")
 # Decode 
 jwt_decode_hmac(jwt, secret = key)
 
-## ----error=TRUE----------------------------------------------------------
+## ----error=TRUE---------------------------------------------------------------
 # What happens if we decode with the wrong key
 jwt_decode_hmac(jwt, secret = raw())
 
-## ------------------------------------------------------------------------
+## -----------------------------------------------------------------------------
 # Generate ECDSA keypair
 key <- ec_keygen()
 pubkey <- as.list(key)$pubkey
@@ -31,11 +31,11 @@ pubkey <- as.list(key)$pubkey
 # Decode and verify using the public key
 jwt_decode_sig(jwt, pubkey = pubkey)
 
-## ----error = TRUE--------------------------------------------------------
+## ----error = TRUE-------------------------------------------------------------
 wrong_key <- ec_keygen()
 jwt_decode_sig(jwt, pubkey = wrong_key)
 
-## ------------------------------------------------------------------------
+## -----------------------------------------------------------------------------
 (strings <- strsplit(jwt, ".", fixed = TRUE)[[1]])
 cat(rawToChar(base64url_decode(strings[1])))
 cat(rawToChar(base64url_decode(strings[2])))
