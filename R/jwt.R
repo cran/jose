@@ -75,6 +75,7 @@ jwt_decode_hmac <- function(jwt, secret){
   sig <- sha2(out$data, size = out$keysize, key = secret)
   if(!identical(out$sig, unclass(sig)))
     stop("HMAC signature verification failed!", call. = FALSE)
+  check_expiration_time(out$payload)
   structure(out$payload, class = c("jwt_claim", "list"))
 }
 
@@ -89,18 +90,18 @@ jwt_encode_sig <- function(claim = jwt_claim(), key, size = 256, header = NULL) 
   jwt_header <- if(inherits(key, "rsa")){
   if(as.list(key)$size < 2048)
     stop("RSA keysize must be at least 2048 bit")
-    to_json(c(list(
+    to_json(utils::modifyList(list(
       typ = "JWT",
       alg = paste0("RS", size)
-    ), header))
+    ), as.list(header)))
   } else if(inherits(key, "ecdsa")){
     # See http://tools.ietf.org/html/draft-ietf-jose-json-web-algorithms-40#section-3.4
     size <- switch(as.list(key)$data$curve,
       "P-256" = 256, "P-384" = 384, "P-521" = 512, stop("invalid curve"))
-    to_json(c(list(
+    to_json(utils::modifyList(list(
       typ = "JWT",
       alg = paste0("ES", size)
-    ), header))
+    ), as.list(header)))
   } else {
     stop("Key must be RSA or ECDSA private key")
   }
@@ -133,6 +134,7 @@ jwt_decode_sig <- function(jwt, pubkey){
   }
   if(!signature_verify(dgst, out$sig, hash = NULL, pubkey = key))
     stop(out$type, " signature verification failed!", call. = FALSE)
+  check_expiration_time(out$payload)
   structure(out$payload, class = c("jwt_claim", "list"))
 }
 
@@ -141,18 +143,17 @@ jwt_decode_sig <- function(jwt, pubkey){
 jwt_split <- function(jwt){
   input <- strsplit(jwt, ".", fixed = TRUE)[[1]]
   stopifnot(length(input) %in% c(2,3))
-  header <- jsonlite::fromJSON(rawToChar(base64url_decode(input[1])))
+  header <- fromJSON(rawToChar(base64url_decode(input[1])))
   stopifnot(toupper(header$typ) == "JWT")
   if(is.na(input[3])) input[3] = ""
   sig <- base64url_decode(input[3])
-  header <- fromJSON(rawToChar(base64url_decode(input[1])))
   payload <- fromJSON(rawToChar(base64url_decode(input[2])))
   data <- charToRaw(paste(input[1:2], collapse = "."))
   if(!grepl("^none|[HRE]S(256|384|512)$", header$alg))
     stop("Invalid algorithm: ", header$alg)
   keysize <- as.numeric(substring(header$alg, 3))
   type <- match.arg(substring(header$alg, 1, 1), c("HMAC", "RSA", "ECDSA"))
-  list(type = type, keysize = keysize, data = data, sig = sig, payload = payload)
+  list(type = type, keysize = keysize, data = data, sig = sig, payload = payload, header = header)
 }
 
 to_json <- function(x){
@@ -165,4 +166,23 @@ pad_bignum <- function(x, keysize){
   stopifnot(keysize %in% c(256, 384, 512))
   bitsize <- switch (as.character(keysize), "256" = 32, "384" = 48, "512" = 66)
   c(raw(bitsize - length(x)), x)
+}
+
+# As suggested in the spec, we give a 60s grace period to account
+# for inaccurate clocks.
+check_expiration_time <- function(payload){
+  if(length(payload$exp)){
+    stopifnot("exp claim is a number" = is.numeric(payload$exp))
+    expdate <- structure(payload$exp, class = c("POSIXct", "POSIXt"))
+    if(expdate < (Sys.time() - 60)){
+      stop(paste("Token has expired on", expdate), call. = FALSE)
+    }
+  }
+  if(length(payload$nbf)){
+    stopifnot("nbf claim is a number" = is.numeric(payload$nbf))
+    nbfdate <- structure(payload$nbf, class = c("POSIXct", "POSIXt"))
+    if(nbfdate > (Sys.time() + 60)){
+      stop(paste("Token is not valid before", nbfdate), call. = FALSE)
+    }
+  }
 }

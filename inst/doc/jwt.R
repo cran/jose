@@ -36,6 +36,19 @@ wrong_key <- ec_keygen()
 jwt_decode_sig(jwt, pubkey = wrong_key)
 
 ## -----------------------------------------------------------------------------
+# Note that this token expires in 1 hour!
+myclaim <- jwt_claim(
+  iss = "My webapp",
+  exp = Sys.time() + 3600,
+  myfield = "Some application logic",
+  customer = "a cow"
+)
+(jwt <- jwt_encode_sig(myclaim, key = key))
+
+## -----------------------------------------------------------------------------
+jwt_decode_sig(jwt, pubkey = pubkey)
+
+## -----------------------------------------------------------------------------
 (strings <- strsplit(jwt, ".", fixed = TRUE)[[1]])
 cat(rawToChar(base64url_decode(strings[1])))
 cat(rawToChar(base64url_decode(strings[2])))
