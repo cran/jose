@@ -3,7 +3,7 @@
 #' Sign or verify a JSON web token. The \code{jwt_encode_hmac}, \code{jwt_encode_rsa},
 #' and \code{jwt_encode_ec} default to \code{HS256}, \code{RS256}, and \code{ES256}
 #' respectively. See \href{https://jwt.io}{jwt.io} or
-#' \href{https://tools.ietf.org/html/rfc7519}{RFC7519} for more details.
+#' \href{https://datatracker.ietf.org/doc/html/rfc7519}{RFC7519} for more details.
 #'
 #' @export
 #' @rdname jwt_encode
@@ -13,7 +13,7 @@
 #' @param size bitsize of sha2 signature, i.e. \code{sha256}, \code{sha384} or \code{sha512}.
 #' Only for HMAC/RSA, not applicable for ECDSA keys.
 #' @param header named list with additional parameter fields to include in the jwt header as
-#' defined in \href{https://tools.ietf.org/html/rfc7515#section-9.1.2}{rfc7515 section 9.1.2}
+#' defined in \href{https://datatracker.ietf.org/doc/html/rfc7515#section-9.1.2}{rfc7515 section 9.1.2}
 #' @param jwt string containing the JSON Web Token (JWT)
 #' @param key path or object with RSA or EC private key, see \link[openssl:read_key]{openssl::read_key}.
 #' @param pubkey path or object with RSA or EC public key, see \link[openssl:read_pubkey]{openssl::read_pubkey}.
@@ -102,11 +102,20 @@ jwt_encode_sig <- function(claim = jwt_claim(), key, size = 256, header = NULL) 
       typ = "JWT",
       alg = paste0("ES", size)
     ), as.list(header)))
+  } else if(inherits(key, "ed25519")){
+    to_json(utils::modifyList(list(
+      typ = "JWT",
+      alg = "EdDSA"
+    ), as.list(header)))
   } else {
-    stop("Key must be RSA or ECDSA private key")
+    stop("Key must be RSA / ECDSA / ed25519 private key")
   }
   doc <- paste(base64url_encode(jwt_header), base64url_encode(to_json(claim)), sep = ".")
-  dgst <- sha2(charToRaw(doc), size = size)
+  dgst <- if(inherits(key, "ed25519")){
+    charToRaw(doc)
+  } else {
+    sha2(charToRaw(doc), size = size)
+  }
   sig <- signature_create(dgst, hash = NULL, key = key)
   if(inherits(key, "ecdsa")){
     params <- openssl::ecdsa_parse(sig)
@@ -120,12 +129,21 @@ jwt_encode_sig <- function(claim = jwt_claim(), key, size = 256, header = NULL) 
 #' @rdname jwt_encode
 jwt_decode_sig <- function(jwt, pubkey){
   out <- jwt_split(jwt)
-  if(out$type != "RSA" && out$type != "ECDSA")
-    stop("Invalid algorithm: ", out$type)
+  if(!(out$type %in% c("RSA", "ECDSA", "EdDSA")))
+    stop("Unsupported algorithm: ", out$type)
   key <- read_pubkey(pubkey)
-  if((!inherits(key, "rsa") && !inherits(key, "ecdsa")) || !inherits(key, "pubkey"))
-    stop("Key must be rsa/ecdsa public key")
-  dgst <- sha2(out$data, size = out$keysize)
+  stopifnot(inherits(key, "pubkey"))
+  if(out$type == 'RSA' && !inherits(key, 'rsa'))
+    stop(sprintf("JWT signature is in RSA format but provided pubkey is %s", class(key)[2]))
+  if(out$type == 'ECDSA' && !inherits(key, 'ecdsa'))
+    stop(sprintf("JWT signature is in ECDSA format but provided pubkey is %s", class(key)[2]))
+  if(out$type == 'EdDSA' && !inherits(key, 'ed25519'))
+    stop(sprintf("JWT signature is in EdDSA format but provided pubkey is %s", class(key)[2]))
+  dgst <- if(out$type == "EdDSA"){
+    out$data
+  } else {
+    sha2(out$data, size = out$keysize)
+  }
   if(out$type == "ECDSA"){
     bitsize <- length(out$sig)/2
     r <- out$sig[seq_len(bitsize)]
@@ -144,15 +162,22 @@ jwt_split <- function(jwt){
   input <- strsplit(jwt, ".", fixed = TRUE)[[1]]
   stopifnot(length(input) %in% c(2,3))
   header <- fromJSON(rawToChar(base64url_decode(input[1])))
-  stopifnot(toupper(header$typ) == "JWT")
+  if(length(header$typ)){
+    stopifnot(toupper(header$typ) == "JWT")
+  }
   if(is.na(input[3])) input[3] = ""
   sig <- base64url_decode(input[3])
   payload <- fromJSON(rawToChar(base64url_decode(input[2])))
   data <- charToRaw(paste(input[1:2], collapse = "."))
-  if(!grepl("^none|[HRE]S(256|384|512)$", header$alg))
+  if(!grepl("^none|EdDSA|[HRE]S(256|384|512)$", header$alg))
     stop("Invalid algorithm: ", header$alg)
-  keysize <- as.numeric(substring(header$alg, 3))
-  type <- match.arg(substring(header$alg, 1, 1), c("HMAC", "RSA", "ECDSA"))
+  if(grepl('.S\\d\\d\\d', header$alg)){
+    type <- match.arg(substring(header$alg, 1, 1), c("HMAC", "RSA", "ECDSA"))
+    keysize <- as.numeric(substring(header$alg, 3))
+  } else {
+    type <- header$alg
+    keysize = NULL
+  }
   list(type = type, keysize = keysize, data = data, sig = sig, payload = payload, header = header)
 }
 

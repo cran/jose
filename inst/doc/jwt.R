@@ -17,8 +17,10 @@ key <- charToRaw("SuperSecret")
 jwt_decode_hmac(jwt, secret = key)
 
 ## ----error=TRUE---------------------------------------------------------------
+try({
 # What happens if we decode with the wrong key
 jwt_decode_hmac(jwt, secret = raw())
+})
 
 ## -----------------------------------------------------------------------------
 # Generate ECDSA keypair
@@ -32,8 +34,10 @@ pubkey <- as.list(key)$pubkey
 jwt_decode_sig(jwt, pubkey = pubkey)
 
 ## ----error = TRUE-------------------------------------------------------------
+try({
 wrong_key <- ec_keygen()
 jwt_decode_sig(jwt, pubkey = wrong_key)
+})
 
 ## -----------------------------------------------------------------------------
 # Note that this token expires in 1 hour!
